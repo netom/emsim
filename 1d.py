@@ -66,11 +66,7 @@ mkhx = c0*dt/m*mfnc
 E = np.zeros(gridsize) # Electric field
 H = np.zeros(gridsize) # Normalized magnetic field
 
-#E[int(gridsize/2)] = 0.1 # Hard pulse injection. Gaussian pulse would be better.
-
 # Display
-
-# First set up the figure, the axis, and the plot element we want to animate
 plt.ion()
 fig = plt.figure()
 ax = plt.axes(ylim=(-10, 10))
@@ -79,7 +75,6 @@ line2, = ax.plot(np.linspace(0, 1, gridsize), np.zeros(gridsize), 'b-')
 
 # Stupid soft source
 source = np.zeros(steps)
-
 source[:5000] = 1.0 * np.sinc(np.linspace(-10,10,5000))
 
 for t in range(steps):
@@ -101,3 +96,7 @@ for t in range(steps):
         line1.set_ydata(E)
         line2.set_ydata(H)
         fig.canvas.draw()
+        plt.pause(0.001)
+
+while True:
+    plt.pause(0.001)
