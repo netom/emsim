@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 
+# 1D FDTD, Ey/Hx mode
+
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+
+# TODO:
+# * Calculate grid resolution
+#   * Hinting sould be possible
+# * Calculate timestamp
+#   * Hinting should be possible
+# * Receive hints and simulation parameters as command-line parameters
+# * 
 
 # Simulation parameters
 
@@ -29,19 +39,16 @@ er[500:700] = np.repeat(2.5,200) # Add a slab of plastic
 
 n  = mr / er # refractive index
 
-
 e = e0 * er
 m = m0 * mr
 
 # Magnetic field normalization coeffitient
 mfnc = np.sqrt(m0 / e0)
 
-# 1D FDTD, Ey/Hx mode
-
 # Update coeffitients
 
-mkey = c0*dt/e
-mkhx = c0*dt/m
+mkey = c0*dt/e/mfnc
+mkhx = c0*dt/m*mfnc
 
 # Yee grid scheme
 
@@ -89,5 +96,5 @@ for t in range(steps):
 
     if t % 100 == 0:
         line1.set_ydata(E)
-        line2.set_ydata(H*mfnc)
+        line2.set_ydata(H)
         fig.canvas.draw()
