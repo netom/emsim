@@ -4,6 +4,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import time
 
 # TODO:
@@ -16,8 +17,9 @@ import time
 
 # Simulation parameters
 
-dt = 10**-18 # Time step
-steps = 100000
+dt = 10**-18     # Time step size, seconds
+simlen = 10**-13 # Simulation length size, seconds
+steps = int(simlen / dt)
 
 # dt < 1 / sqrt(1/dx**2 + 1/dy**2 + 1/dz**2) - the Courant stability condition
 # Rule of thumb: dmin / 2*c0
@@ -35,7 +37,7 @@ e0 = 8.854187817*10**-12 # F/m
 er = np.ones(gridsize) # permittivity, can be diagonally anisotropic
 mr = np.ones(gridsize) # permeability, can be diagonally anisotropic
 
-er[500:700] = np.repeat(2.5,200) # Add a slab of plastic
+er[1200:1400] = np.repeat(2.5,200) # Add a slab of plastic
 
 n  = mr / er # refractive index
 
@@ -69,22 +71,37 @@ H = np.zeros(gridsize) # Normalized magnetic field
 # Display
 plt.ion()
 fig = plt.figure()
-ax = plt.axes(ylim=(-10, 10))
-line1, = ax.plot(np.linspace(0, 1, gridsize), np.zeros(gridsize), 'r-')
-line2, = ax.plot(np.linspace(0, 1, gridsize), np.zeros(gridsize), 'b-')
+ax = plt.axes(ylim=(-15, 15))
+line1, = ax.plot(range(gridsize), np.zeros(gridsize), 'r-')
+line2, = ax.plot(range(gridsize), np.zeros(gridsize), 'b-')
+ax.add_patch(patches.Rectangle((1200, -20), 200, 40, color=(0.9,0.9,0.9))) # Device
+ax.add_patch(patches.Rectangle((0, -20), 100, 40, color=(0.6,0.6,0.6))) # PML, left
+ax.add_patch(patches.Rectangle((gridsize-100, -20), gridsize, 40, color=(0.6,0.6,0.6))) # PML, right
 
-# Stupid soft source
-source = np.zeros(steps)
-source[:5000] = 1.0 * np.sinc(np.linspace(-10,10,5000))
+# Sinc tf/sf source
+def sinc_source(t):
+    sinc_from  = -10.0
+    sinc_to    = 10.0
+    sinc_steps = 5000.0
+    if t < sinc_steps:
+        # TODO: correct for the time and space staggering
+        return (
+             np.sinc(sinc_from + t * (sinc_to - sinc_from) / sinc_steps), # H, normalized in vacuum
+            -np.sinc(sinc_from + t * (sinc_to - sinc_from) / sinc_steps)  # E
+        )
+    else:
+        return (0.0, 0.0)
 
 for t in range(steps):
-    E[int(gridsize/2)] += source[t] # Stupid source injection
+    src = sinc_source(t)
 
     H[:-1] = H[:-1] + mkhx[:-1] * (E[1:] - E[:-1]) / dz
     H[-1]  = H[-1]  + mkhx[-1]  * (0     - E[-1] ) / dz # Dirichlet numerical boundary conditions
+    H[int(300)] += src[0] # H source injection
 
     E[0]  = E[0]  + mkey[0]  * (H[0]  - 0     ) / dz # Dirichlet numerical boundary conditions
     E[1:] = E[1:] + mkey[1:] * (H[1:] - H[:-1]) / dz
+    E[int(300)] += src[1] # E source injection
 
     # Dampen at the edges instead of using the messy perfect edge algorithm.
     E[:100] *= np.linspace(0.99,1.0,100)
@@ -97,6 +114,8 @@ for t in range(steps):
         line2.set_ydata(H)
         fig.canvas.draw()
         plt.pause(0.001)
+
+print("Simulation complete")
 
 while True:
     plt.pause(0.001)
