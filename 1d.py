@@ -24,7 +24,13 @@ c0 = 1.0/np.sqrt(m0*e0)  # The speed of light
 
 # Simulation parameters
 
+KHz = 1000.0
+MHz = 1000000.0
 GHz = 1000000000.0
+
+ps = 10**-12
+ns = 10**-9
+us = 10**-6
 
 # Material layers
 # Layers are overwriting each other, last write wins
@@ -52,7 +58,7 @@ dzpmwl = 10                        # delta-z per minimal wavelength, a rule-of-t
 dz = lamb_min / dzpmwl             # Spatial step size, meters
 gridsize = round(space_size / dz)  # Size of the grid in cells
 simlen = 5 * space_size / c0       # Simulation length, seconds (5 travels back & forth)
-dt = n_min * dz / (200000000*c0)   # From the Courant stability confition. This is a rule of thumb TODO: this is wrong.
+dt = n_min * dz / (2*c0)           # From the Courant-Friedrichs-Lewy condition. This is a rule of thumb
 steps = int(simlen / dt)           # Number of simulation steps
 
 print("simulation length:", simlen)
@@ -70,16 +76,9 @@ for layer in layers:
         er[i] = layer[0]
         mr[i] = layer[1]
 
-m = m0 * mr
-e = e0 * er
-
-# Magnetic field normalization coeffitient
-mfnc = np.sqrt(m0 / e0)
-
-# Update coeffitients
-
-mkey = c0*dt/e/mfnc
-mkhx = c0*dt/m*mfnc
+# Update coeffitients, using normalized magnetic field
+mkhx = c0*dt/mr
+mkey = c0*dt/er
 
 # Yee grid scheme
 
@@ -110,27 +109,33 @@ for layer in layers:
 
 # Sinc tf/sf source
 def sinc_source(t):
-    sinc_from  = -10*np.pi
-    sinc_to    = 10*np.pi
-    sinc_steps = 10000.0
-    if t < sinc_steps:
+    periods  = 5
+    duration = 1*ns
+
+    fr   = -periods*np.pi
+    to   = periods*np.pi
+    stps = duration / dt
+
+    if t < stps:
         # TODO: correct for the time and space staggering
         return (
-             np.sinc(sinc_from + t * (sinc_to - sinc_from) / sinc_steps), # H, normalized in vacuum
-            -np.sinc(sinc_from + t * (sinc_to - sinc_from) / sinc_steps)  # E
+             np.sinc(fr + t * (to - fr) / stps), # H
+            -np.sinc(fr + t * (to - fr) / stps)  # E
         )
     else:
         return (0.0, 0.0)
 
 def gausspulse_source(t):
-    fr = -0.003
-    to = 0.003
-    pulse_steps = 1000.0
+    duration = 1*ns
 
-    if t < pulse_steps:
+    fr   = -0.003
+    to   = 0.003
+    stps = duration / dt
+
+    if t < stps:
         return(
-             5*signal.gausspulse(fr + t * (to - fr) / pulse_steps, retquad=False, retenv=True)[1],
-            -5*signal.gausspulse(fr + t * (to - fr) / pulse_steps, retquad=False, retenv=True)[1]
+             signal.gausspulse(fr + t * (to - fr) / stps, retquad=False, retenv=True)[1],
+            -signal.gausspulse(fr + t * (to - fr) / stps, retquad=False, retenv=True)[1]
         )
     else:
         return (0.0, 0.0)
@@ -138,15 +143,14 @@ def gausspulse_source(t):
 for t in range(steps):
     src = gausspulse_source(t)
 
-    H[:-1] = H[:-1] + mkhx[:-1] * (E[1:] - E[:-1]) / dz
-    H[-1]  = H[-1]  + mkhx[-1]  * (0     - E[-1] ) / dz # Dirichlet numerical boundary conditions
-    H[int(101)] += src[0] # H source injection
-    if np.isnan(H[0]):
-        print("NAN")
-        break;
+    H[:-1] += mkhx[:-1] * (E[1:] - E[:-1]) / dz
+    H[-1]  += mkhx[-1]  * (0     - E[-1] ) / dz # Dirichlet numerical boundary conditions
 
-    E[0]  = E[0]  + mkey[0]  * (H[0]  - 0     ) / dz # Dirichlet numerical boundary conditions
-    E[1:] = E[1:] + mkey[1:] * (H[1:] - H[:-1]) / dz
+    H[int(101)] += src[0] # H source injection
+
+    E[0]  += mkey[0]  * (H[0]  - 0     ) / dz # Dirichlet numerical boundary conditions
+    E[1:] += mkey[1:] * (H[1:] - H[:-1]) / dz
+
     E[int(101)] += src[1] # E source injection
 
     # Dampen at the edges instead of using the messy perfect edge algorithm.
