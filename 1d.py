@@ -5,6 +5,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from scipy import signal
 import time
 
 # TODO:
@@ -15,34 +16,62 @@ import time
 # * Receive hints and simulation parameters as command-line parameters
 # * 
 
-# Simulation parameters
-
-dt = 10**-18     # Time step size, seconds
-simlen = 10**-13 # Simulation length size, seconds
-steps = int(simlen / dt)
-
-# dt < 1 / sqrt(1/dx**2 + 1/dy**2 + 1/dz**2) - the Courant stability condition
-# Rule of thumb: dmin / 2*c0
-
-dz = 1.0 # Spatial step in direction Z
-
-gridsize = 2000
-
 # Basic constants
 
-c0 = 299792458           # m/s
-m0 = 4*np.pi*10**-7   # N/A**2
+m0 = 4*np.pi*10**-7      # N/A**2
 e0 = 8.854187817*10**-12 # F/m
+c0 = 1.0/np.sqrt(m0*e0)  # The speed of light
 
-er = np.ones(gridsize) # permittivity, can be diagonally anisotropic
+# Simulation parameters
+
+GHz = 1000000000.0
+
+# Material layers
+# Layers are overwriting each other, last write wins
+# First layer should be free space.
+# (mr, er, start, width)
+layers = [
+    (1.0, 1.0, 0.0, 1.0), # Free space
+    (1.0, 2.5, 0.6, 0.2) # A 20cm slab of plastic
+]
+
+# Calculate maximal refractive index
+n_max = 1.0
+n_min = 1000000.0 # TODO: init to first layer
+for layer in layers:
+    n = layer[0] / layer[1]
+    if n > n_max:
+        n_max = n
+    if n < n_min:
+        n_min = n
+
+space_size = 1.0                   # meters
+freq_max = 100*GHz                 # maximal resolvable frequency
+lamb_min = c0 / (freq_max * n_max) # minimal wavelength
+dzpmwl = 10                        # delta-z per minimal wavelength, a rule-of-thumb constant
+dz = lamb_min / dzpmwl             # Spatial step size, meters
+gridsize = round(space_size / dz)  # Size of the grid in cells
+simlen = 5 * space_size / c0       # Simulation length, seconds (5 travels back & forth)
+dt = n_min * dz / (200000000*c0)   # From the Courant stability confition. This is a rule of thumb TODO: this is wrong.
+steps = int(simlen / dt)           # Number of simulation steps
+
+print("simulation length:", simlen)
+print("grid size:", gridsize)
+print("steps:", steps)
+print("dt:", dt)
+print("dz:", dz)
+
 mr = np.ones(gridsize) # permeability, can be diagonally anisotropic
+er = np.ones(gridsize) # permittivity, can be diagonally anisotropic
 
-er[1200:1400] = np.repeat(2.5,200) # Add a slab of plastic
+for layer in layers:
+    # TODO: snap layers to grid / snap grid to layers?
+    for i in range(max(0, int(layer[2]/dz)), min(gridsize, int((layer[2]+layer[3])/dz))):
+        er[i] = layer[0]
+        mr[i] = layer[1]
 
-n  = mr / er # refractive index
-
-e = e0 * er
 m = m0 * mr
+e = e0 * er
 
 # Magnetic field normalization coeffitient
 mfnc = np.sqrt(m0 / e0)
@@ -72,17 +101,18 @@ H = np.zeros(gridsize) # Normalized magnetic field
 plt.ion()
 fig = plt.figure()
 ax = plt.axes(ylim=(-15, 15))
-line1, = ax.plot(range(gridsize), np.zeros(gridsize), 'r-')
-line2, = ax.plot(range(gridsize), np.zeros(gridsize), 'b-')
-ax.add_patch(patches.Rectangle((1200, -20), 200, 40, color=(0.9,0.9,0.9))) # Device
-ax.add_patch(patches.Rectangle((0, -20), 100, 40, color=(0.6,0.6,0.6))) # PML, left
-ax.add_patch(patches.Rectangle((gridsize-100, -20), gridsize, 40, color=(0.6,0.6,0.6))) # PML, right
+line1, = ax.plot(np.linspace(0.0, space_size, gridsize), np.zeros(gridsize), 'r-')
+line2, = ax.plot(np.linspace(0.0, space_size, gridsize), np.zeros(gridsize), 'b-')
+
+for layer in layers:
+    n = layer[0]/layer[1]
+    ax.add_patch(patches.Rectangle((layer[2], -20), layer[3], 40, color=(n, n, n)))
 
 # Sinc tf/sf source
 def sinc_source(t):
-    sinc_from  = -10.0
-    sinc_to    = 10.0
-    sinc_steps = 5000.0
+    sinc_from  = -10*np.pi
+    sinc_to    = 10*np.pi
+    sinc_steps = 10000.0
     if t < sinc_steps:
         # TODO: correct for the time and space staggering
         return (
@@ -92,22 +122,38 @@ def sinc_source(t):
     else:
         return (0.0, 0.0)
 
+def gausspulse_source(t):
+    fr = -0.003
+    to = 0.003
+    pulse_steps = 1000.0
+
+    if t < pulse_steps:
+        return(
+             5*signal.gausspulse(fr + t * (to - fr) / pulse_steps, retquad=False, retenv=True)[1],
+            -5*signal.gausspulse(fr + t * (to - fr) / pulse_steps, retquad=False, retenv=True)[1]
+        )
+    else:
+        return (0.0, 0.0)
+
 for t in range(steps):
-    src = sinc_source(t)
+    src = gausspulse_source(t)
 
     H[:-1] = H[:-1] + mkhx[:-1] * (E[1:] - E[:-1]) / dz
     H[-1]  = H[-1]  + mkhx[-1]  * (0     - E[-1] ) / dz # Dirichlet numerical boundary conditions
-    H[int(300)] += src[0] # H source injection
+    H[int(101)] += src[0] # H source injection
+    if np.isnan(H[0]):
+        print("NAN")
+        break;
 
     E[0]  = E[0]  + mkey[0]  * (H[0]  - 0     ) / dz # Dirichlet numerical boundary conditions
     E[1:] = E[1:] + mkey[1:] * (H[1:] - H[:-1]) / dz
-    E[int(300)] += src[1] # E source injection
+    E[int(101)] += src[1] # E source injection
 
     # Dampen at the edges instead of using the messy perfect edge algorithm.
-    E[:100] *= np.linspace(0.99,1.0,100)
-    H[:100] *= np.linspace(0.99,1.0,100)
-    E[-100:] *= np.linspace(1.0,0.99,100)
-    H[-100:] *= np.linspace(1.0,0.99,100)
+    E[:100] *= np.linspace(0.98,1.0,100)
+    H[:100] *= np.linspace(0.98,1.0,100)
+    E[-100:] *= np.linspace(1.0,0.98,100)
+    H[-100:] *= np.linspace(1.0,0.98,100)
 
     if t % 100 == 0:
         line1.set_ydata(E)
