@@ -9,12 +9,7 @@ from scipy import signal
 import time
 
 # TODO:
-# * Calculate grid resolution
-#   * Hinting sould be possible
-# * Calculate timestamp
-#   * Hinting should be possible
 # * Receive hints and simulation parameters as command-line parameters
-# * 
 
 # Basic constants
 
@@ -56,7 +51,7 @@ freq_max = 100*GHz                 # maximal resolvable frequency
 lamb_min = c0 / (freq_max * n_max) # minimal wavelength
 dzpmwl = 10                        # delta-z per minimal wavelength, a rule-of-thumb constant
 dz = lamb_min / dzpmwl             # Spatial step size, meters
-gridsize = round(space_size / dz)  # Size of the grid in cells
+gridsize = int(space_size / dz)    # Size of the grid in cells
 simlen = 5 * space_size / c0       # Simulation length, seconds (5 travels back & forth)
 dt = n_min * dz / (2*c0)           # From the Courant-Friedrichs-Lewy condition. This is a rule of thumb
 steps = int(simlen / dt)           # Number of simulation steps
