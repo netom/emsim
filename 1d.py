@@ -94,7 +94,7 @@ H = np.zeros(gridsize) # Normalized magnetic field
 # Display
 plt.ion()
 fig = plt.figure()
-ax = plt.axes(ylim=(-15, 15))
+ax = plt.axes(ylim=(-5, 5))
 line1, = ax.plot(np.linspace(0.0, space_size, gridsize), np.zeros(gridsize), 'r-')
 line2, = ax.plot(np.linspace(0.0, space_size, gridsize), np.zeros(gridsize), 'b-')
 
@@ -102,59 +102,51 @@ for layer in layers:
     n = layer[0]/layer[1]
     ax.add_patch(patches.Rectangle((layer[2], -20), layer[3], 40, color=(n, n, n)))
 
-# Sinc tf/sf source
-def sinc_source(t):
-    periods  = 5
-    duration = 1*ns
+# Sinc function source
+def sinc_source(er, ur, period, t0, t):
+    a_corr = -np.sqrt(er/ur) # amplitude correction term
+    t_corr = np.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
+    return (
+        # H field
+        a_corr * np.sinc((t-t0)*2/period + t_corr),
+        # E field
+        np.sinc((t-t0)*2/period)  # E
+    )
 
-    fr   = -periods*np.pi
-    to   = periods*np.pi
-    stps = duration / dt
+# Gaussian pulse source
+def gausspulse_source(er, ur, t0, tau, t):
+    a_corr = -np.sqrt(er/ur) # amplitude correction term
+    t_corr = np.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
+    return (
+         a_corr * np.exp(-((t-t0)/tau)**2 + t_corr),
+         np.exp(-((t-t0)/tau)**2)
+    )
 
-    if t < stps:
-        # TODO: correct for the time and space staggering
-        return (
-             np.sinc(fr + t * (to - fr) / stps), # H
-            -np.sinc(fr + t * (to - fr) / stps)  # E
-        )
-    else:
-        return (0.0, 0.0)
+# TODO: TF/SF correction terms seem to have little effect on the backward
+# propagating power
 
-def gausspulse_source(t):
-    duration = 1*ns
-
-    fr   = -0.003
-    to   = 0.003
-    stps = duration / dt
-
-    if t < stps:
-        return(
-             signal.gausspulse(fr + t * (to - fr) / stps, retquad=False, retenv=True)[1],
-            -signal.gausspulse(fr + t * (to - fr) / stps, retquad=False, retenv=True)[1]
-        )
-    else:
-        return (0.0, 0.0)
-
-for t in range(steps):
-    src = gausspulse_source(t)
+for i in range(steps):
+    t = i*dt
+    #src = gausspulse_source(1.0, 1.0, 100*ps, 20*ps, t)
+    src = sinc_source(1.0, 1.0, 333*ps, 999*ps, t)
 
     H[:-1] += mkhx[:-1] * (E[1:] - E[:-1]) / dz
     H[-1]  += mkhx[-1]  * (0     - E[-1] ) / dz # Dirichlet numerical boundary conditions
 
-    H[int(101)] += src[0] # H source injection
+    H[int(500)] += src[0] # H source injection
 
     E[0]  += mkey[0]  * (H[0]  - 0     ) / dz # Dirichlet numerical boundary conditions
     E[1:] += mkey[1:] * (H[1:] - H[:-1]) / dz
 
-    E[int(101)] += src[1] # E source injection
+    E[int(500)] += src[1] # E source injection
 
-    # Dampen at the edges instead of using the messy perfect edge algorithm.
-    E[:100] *= np.linspace(0.98,1.0,100)
-    H[:100] *= np.linspace(0.98,1.0,100)
-    E[-100:] *= np.linspace(1.0,0.98,100)
-    H[-100:] *= np.linspace(1.0,0.98,100)
+    # Simply dampen at the edges instead of using the messy perfect edge or PML method.
+    E[:100] *= np.linspace(0.985,1.0,100)
+    H[:100] *= np.linspace(0.985,1.0,100)
+    E[-100:] *= np.linspace(1.0,0.985,100)
+    H[-100:] *= np.linspace(1.0,0.985,100)
 
-    if t % 100 == 0:
+    if i % 100 == 0:
         line1.set_ydata(E)
         line2.set_ydata(H)
         fig.canvas.draw()
