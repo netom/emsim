@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# 1D FDTD, Ey/Hx mode
+# 2D FDTD, Hz mode
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -27,13 +27,13 @@ ps = 10**-12
 ns = 10**-9
 us = 10**-6
 
-# Material layers
-# Layers are overwriting each other, last write wins
-# First layer should be free space.
-# (mr, er, start, width)
+# Material patches
+# patches are overwriting each other, last write wins
+# First patch should be free space.
+# (mr, er, startx, stary, widthx, widthy)
 layers = [
-    (1.0, 1.0, 0.0, 1.0), # Free space
-    (1.0, 2.5, 0.6, 0.2) # A 20cm slab of plastic
+    (1.0, 1.0, 0.0, 0.0, 1.0, 1.0), # Free space
+    (1.0, 2.5, 0.6, 0,6, 0.2, 0.2) # A 20x20cm slab of plastic
 ]
 
 # Calculate maximal refractive index
@@ -46,66 +46,62 @@ for layer in layers:
     if n < n_min:
         n_min = n
 
-space_size = 1.0                   # meters
-freq_max = 100*GHz                 # maximal resolvable frequency
-lamb_min = c0 / (freq_max * n_max) # minimal wavelength
-dzpmwl = 10                        # delta-z per minimal wavelength, a rule-of-thumb constant
-dz = lamb_min / dzpmwl             # Spatial step size, meters
-gridsize = int(space_size / dz)    # Size of the grid in cells
-simlen = 5 * space_size / c0       # Simulation length, seconds (5 travels back & forth)
-dt = n_min * dz / (2*c0)           # From the Courant-Friedrichs-Lewy condition. This is a rule of thumb
-steps = int(simlen / dt)           # Number of simulation steps
+space_size_x = 1.0                  # meters
+space_size_y = 1.0                  # meters
+freq_max = 10*GHz                   # maximal resolvable frequency
+lamb_min = c0 / (freq_max * n_max)  # minimal wavelength
+dxpmwl = 10                         # delta-x per minimal wavelength, a rule-of-thumb constant
+dypmwl = 10                         # delta-y per minimal wavelength, a rule-of-thumb constant
+dx = lamb_min / dxpmwl              # Spatial step size, meters
+dy = lamb_min / dypmwl              # Set the two spatial steps equal for now
+gridsize_x = int(space_size_x / dx) # Size of the grid in cells
+gridsize_y = int(space_size_y / dy) # Size of the grid in cells
+simlen = 5 * max(space_size_x, space_size_y) / c0   # Simulation length, seconds (5 travels back & forth)
+dt = n_min * min(dx, dy) / (2*c0)   # From the Courant-Friedrichs-Lewy condition. This is a rule of thumb
+steps = int(simlen / dt)            # Number of simulation steps
 
 print("simulation length:", simlen)
-print("grid size:", gridsize)
+print("grid size:", gridsize_x, gridsize_y)
 print("steps:", steps)
 print("dt:", dt)
-print("dz:", dz)
+print("dx:", dx)
+print("dy:", dy)
 
-mr = np.ones(gridsize) # permeability, can be diagonally anisotropic
-er = np.ones(gridsize) # permittivity, can be diagonally anisotropic
+mrx = np.ones((gridsize_x, gridsize_y)) # permeability, can be diagonally anisotropic
+mry = np.ones((gridsize_x, gridsize_y))
+erz = np.ones((gridsize_x, gridsize_y)) # permittivity
 
 for layer in layers:
-    # TODO: snap layers to grid / snap grid to layers?
-    for i in range(max(0, int(layer[2]/dz)), min(gridsize, int((layer[2]+layer[3])/dz))):
-        er[i] = layer[0]
-        mr[i] = layer[1]
+    for i in range(max(0, int(layer[2]/dx)), min(gridsize_x, int((layer[2]+layer[3])/dx))):
+        #er[i] = layer[0]
+        #mr[i] = layer[1]
+        # TODO
+        pass
 
-# Update coeffitients, using normalized magnetic field
-mkhx = c0*dt/mr
-mkey = c0*dt/er
+# Fields
 
-# Yee grid scheme
-
-# dx, dy, dz, must be as square as possible, but can be different
-# Function values are assigned at the middle of the square
-#
-# Field components are staggered at different places around
-#   the grid unit cube / square
-#
-# * This helps naturally satisfy the divergence equations
-# * Material boundaries are naturally handled
-# * Easier to calculate discrete curls
-# * WARNING: field components can be in different materials!
-
-E = np.zeros(gridsize) # Electric field
-H = np.zeros(gridsize) # Normalized magnetic field
+Cex = np.zeros((gridsize_x, gridsize_y)) # Curl of the normalized electric field
+Cey = np.zeros((gridsize_x, gridsize_y))
+Hx  = np.zeros((gridsize_x, gridsize_y)) # Magnetic field
+Hy  = np.zeros((gridsize_x, gridsize_y))
+Chz = np.zeros((gridsize_x, gridsize_y)) # Curl of the magnetic field
+Dz  = np.zeros((gridsize_x, gridsize_y)) # Normalized D-field
+Ez  = np.zeros((gridsize_x, gridsize_y)) # Normalized electric field
 
 # Display
-plt.ion()
-fig = plt.figure()
-ax = plt.axes(ylim=(-5, 5))
-line1, = ax.plot(np.linspace(0.0, space_size, gridsize), np.zeros(gridsize), 'r-')
-line2, = ax.plot(np.linspace(0.0, space_size, gridsize), np.zeros(gridsize), 'b-')
+#plt.ion()
+#fig = plt.figure()
+#ax  = plt.axes()
+#im  = ax.imshow(Ez)
 
 for layer in layers:
     n = layer[0]/layer[1]
-    ax.add_patch(patches.Rectangle((layer[2], -20), layer[3], 40, color=(n, n, n)))
+    #ax.add_patch(patches.Rectangle((layer[2], -20), layer[3], 40, color=(n, n, n))) # TODO.
 
 # Sinc function source
 def sinc_source(er, ur, period, t0, t):
     a_corr = -np.sqrt(er/ur) # amplitude correction term
-    t_corr = np.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
+    t_corr = np.sqrt(er*ur)*dx/(2*c0) + dt/2 # Time correction term
     return (
         # H field
         a_corr * np.sinc((t-t0)*2/period + t_corr),
@@ -116,41 +112,43 @@ def sinc_source(er, ur, period, t0, t):
 # Gaussian pulse source
 def gausspulse_source(er, ur, t0, tau, t):
     a_corr = -np.sqrt(er/ur) # amplitude correction term
-    t_corr = np.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
+    t_corr = np.sqrt(er*ur)*dx/(2*c0) + dt/2 # Time correction term
     return (
          a_corr * np.exp(-((t-t0)/tau)**2 + t_corr),
          np.exp(-((t-t0)/tau)**2)
     )
 
-# TODO: TF/SF correction terms seem to have little effect on the backward
-# propagating power
-
 for i in range(steps):
     t = i*dt
-    #src = gausspulse_source(1.0, 1.0, 100*ps, 20*ps, t)
-    src = sinc_source(1.0, 1.0, 333*ps, 999*ps, t)
+    src = gausspulse_source(1.0, 1.0, 800*ps, 200*ps, t)
 
-    H[:-1] += mkhx[:-1] * (E[1:] - E[:-1]) / dz
-    H[-1]  += mkhx[-1]  * (0     - E[-1] ) / dz # Dirichlet numerical boundary conditions
+    Cex[:,:-1] = (Ez[:,1:] - Ez[:,:-1]) / dy
+    Cex[:, -1] = (       0 - Ez[:, -1]) / dy
+    Cey[:-1,:] = (Ez[1:,:] - Ez[-1:,:]) / dx
+    Cey[ -1,:] = (       0 - Ez[-1 ,:]) / dx
 
-    H[int(500)] += src[0] # H source injection
+    Hx += -c0 * dt / mrx * Cex
+    Hy += -c0 * dt / mry * Cey
 
-    E[0]  += mkey[0]  * (H[0]  - 0     ) / dz # Dirichlet numerical boundary conditions
-    E[1:] += mkey[1:] * (H[1:] - H[:-1]) / dz
+    Chz[1:,1:] = (Hy[1:,1:] - Hy[:-1,1:]) / dx - (Hx[1:,1:] - Hx[1:,:-1]) / dy
+    Chz[0 ,1:] = (Hy[0 ,1:] -          0) / dx - (Hx[0 ,1:] - Hx[0 ,:-1]) / dy
+    Chz[1:,0 ] = (Hy[1:,0 ] - Hy[:-1,0 ]) / dx - (Hx[1:,0 ] -          0) / dy
+    Chz[0 ,0 ] = (Hy[0 ,0 ] -          0) / dx - (Hx[0 ,0 ] -          0) / dy
 
-    E[int(500)] += src[1] # E source injection
+    Dz += c0 * dt * Chz
 
-    # Simply dampen at the edges instead of using the messy perfect edge or PML method.
-    E[:100] *= np.linspace(0.985,1.0,100)
-    H[:100] *= np.linspace(0.985,1.0,100)
-    E[-100:] *= np.linspace(1.0,0.985,100)
-    H[-100:] *= np.linspace(1.0,0.985,100)
+    # Simple soft source injection
+    Dz[100,100] += src[1]
+
+    Ez = 1.0 / erz * Dz
 
     if i % 100 == 0:
-        line1.set_ydata(E)
-        line2.set_ydata(H)
-        fig.canvas.draw()
-        plt.pause(0.001)
+        #im.set_data(Ez)
+        #fig.canvas.draw()
+        #plt.pause(0.001)
+        plt.imshow(Ez, cmap='gray')
+        plt.show()
+        #print(Ez)
 
 print("Simulation complete")
 
