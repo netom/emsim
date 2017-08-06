@@ -122,6 +122,7 @@ def gausspulse_source(er, ur, t0, tau, t):
          np.exp(-((t-t0)/tau)**2)
     )
 
+# Outputs 1.0 at time 0
 def blip_source(t):
     return (0.0, 1.0) if t == 0 else (0.0, 0.0)
 
@@ -132,20 +133,14 @@ def init_animation():
 i = 0
 def animate(_):
     global i, ax, line1, line2, H, E, mkhx, mkey
-    for i in range(i, i+10):
+    for i in range(i, i+20):
         t = i*dt
         src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
-        #src = sinc_source(1.0, 1.0, 333*ps, 999*ps, t)
-        #src = blip_source(t)
 
-        H[:-1] += mkhx[:-1] * (E[1:] - E[:-1]) / dz
-        H[-1]  += mkhx[-1]  * (0     - E[-1] ) / dz # Dirichlet numerical boundary conditions
-
+        H[1:-1] += mkhx[1:-1] * (E[2:] - E[1:-1]) / dz
         H[int(500)] += src[0] # H source injection
 
-        E[0]  += mkey[0]  * (H[0]  - 0     ) / dz # Dirichlet numerical boundary conditions
-        E[1:] += mkey[1:] * (H[1:] - H[:-1]) / dz
-
+        E[1:-1] += mkey[1:-1] * (H[1:-1] - H[:-2]) / dz
         E[int(500)] += src[1] # E source injection
 
         # Simply dampen at the edges instead of using the messy perfect edge or PML method.
