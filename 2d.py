@@ -5,6 +5,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib import animation
 from scipy import signal
 import time
 
@@ -88,12 +89,6 @@ Chz = np.zeros((gridsize_x, gridsize_y)) # Curl of the magnetic field
 Dz  = np.zeros((gridsize_x, gridsize_y)) # Normalized D-field
 Ez  = np.zeros((gridsize_x, gridsize_y)) # Normalized electric field
 
-# Display
-#plt.ion()
-#fig = plt.figure()
-#ax  = plt.axes()
-#im  = ax.imshow(Ez)
-
 for layer in layers:
     n = layer[0]/layer[1]
     #ax.add_patch(patches.Rectangle((layer[2], -20), layer[3], 40, color=(n, n, n))) # TODO.
@@ -121,41 +116,46 @@ def gausspulse_source(er, ur, t0, tau, t):
 def blip_source(t):
     return (0.0, 1.0) if t == 0 else (0.0, 0.0)
 
-for i in range(steps):
-    t = i*dt
-    #src = gausspulse_source(1.0, 1.0, 800*ps, 200*ps, t)
-    src = blip_source(t)
+# Display
+fig = plt.figure()
+im  = plt.imshow(Ez, animated=True, clim=(-0.002, 0.002), cmap='gray', interpolation='nearest')
 
-    Cex[:,:-1] = (Ez[:,1:] - Ez[:,:-1]) / dy
-    Cex[:, -1] = (       0 - Ez[:, -1]) / dy
-    Cey[:-1,:] = (Ez[1:,:] - Ez[-1:,:]) / dx
-    Cey[ -1,:] = (       0 - Ez[-1 ,:]) / dx
+def init_animation():
+    global im
+    return im,
 
-    Hx -= c0 * dt / mrx * Cex
-    Hy -= c0 * dt / mry * Cey
+i = 0
+def animate(_):
+    global i, im, Cex, Cey, Ez, dx, dy, dt, Hx, Hy, Chz, Dz, erz, mrx, mry
 
-    Chz[1:,1:] = (Hy[1:,1:] - Hy[:-1,1:]) / dx - (Hx[1:,1:] - Hx[1:,:-1]) / dy
-    Chz[0 ,1:] = (Hy[0 ,1:] -          0) / dx - (Hx[0 ,1:] - Hx[0 ,:-1]) / dy
-    Chz[1:,0 ] = (Hy[1:,0 ] - Hy[:-1,0 ]) / dx - (Hx[1:,0 ] -          0) / dy
-    Chz[0 ,0 ] = (Hy[0 ,0 ] -          0) / dx - (Hx[0 ,0 ] -          0) / dy
+    if i >= steps:
+        return im,
 
-    Dz += c0 * dt * Chz
+    for i in range(i, i+10):
+        t = i*dt
+        src = gausspulse_source(1.0, 1.0, 300*ps, 100*ps, t)
 
-    # Simple soft source injection
-    Dz[100,100] += src[1]
+        Cex[:,:-1] = (Ez[:,1:] - Ez[:,:-1]) / dy
+        Cex[:, -1] = (       0 - Ez[:, -1]) / dy
+        Cey[:-1,:] = -(Ez[1:,:] - Ez[:-1,:]) / dx
+        Cey[ -1,:] = -(       0 - Ez[-1 ,:]) / dx
 
-    Ez = 1.0 / erz * Dz
+        Hx -= c0 * dt / mrx * Cex
+        Hy -= c0 * dt / mry * Cey
 
-    if i % 100 == 0:
-        #im.set_data(Ez)
-        #fig.canvas.draw()
-        #plt.pause(0.001)
-        #plt.imshow(Ez[80:120,80:120], cmap='gray')
-        #plt.show()
-        #print(Ez)
-        print(np.max(Ez), np.max(Hx), np.max(Hy))
+        Chz[1:,1:] = (Hy[1:,1:] - Hy[:-1,1:]) / dx - (Hx[1:,1:] - Hx[1:,:-1]) / dy
+        Chz[0 ,1:] = (Hy[0 ,1:] -          0) / dx - (Hx[0 ,1:] - Hx[0 ,:-1]) / dy
+        Chz[1:,0 ] = (Hy[1:,0 ] - Hy[:-1,0 ]) / dx - (Hx[1:,0 ] -          0) / dy
+        Chz[0 ,0 ] = (Hy[0 ,0 ] -          0) / dx - (Hx[0 ,0 ] -          0) / dy
 
-print("Simulation complete")
+        Dz += c0 * dt * Chz
 
-while True:
-    plt.pause(0.001)
+        Ez = 1.0 / erz * Dz
+
+        Ez[100,100] += src[1] # Simple soft source injection
+
+    im.set_array(Ez)
+    return im,
+
+anim = animation.FuncAnimation(fig, animate, init_func=init_animation, interval=0, blit=True)
+plt.show()

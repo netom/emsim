@@ -5,6 +5,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib import animation
 from scipy import signal
 import time
 
@@ -92,7 +93,6 @@ E = np.zeros(gridsize) # Electric field
 H = np.zeros(gridsize) # Normalized magnetic field
 
 # Display
-plt.ion()
 fig = plt.figure()
 ax = plt.axes(ylim=(-5, 5))
 line1, = ax.plot(np.linspace(0.0, space_size, gridsize), np.zeros(gridsize), 'r-')
@@ -125,38 +125,38 @@ def gausspulse_source(er, ur, t0, tau, t):
 def blip_source(t):
     return (0.0, 1.0) if t == 0 else (0.0, 0.0)
 
-# TODO: TF/SF correction terms seem to have little effect on the backward
-# propagating power
+def init_animation():
+    global line1, line2
+    return line1, line2
 
-for i in range(steps):
-    t = i*dt
-    src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
-    #src = sinc_source(1.0, 1.0, 333*ps, 999*ps, t)
-    #src = blip_source(t)
+i = 0
+def animate(_):
+    global i, ax, line1, line2, H, E, mkhx, mkey
+    for i in range(i, i+10):
+        t = i*dt
+        src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
+        #src = sinc_source(1.0, 1.0, 333*ps, 999*ps, t)
+        #src = blip_source(t)
 
-    H[:-1] += mkhx[:-1] * (E[1:] - E[:-1]) / dz
-    H[-1]  += mkhx[-1]  * (0     - E[-1] ) / dz # Dirichlet numerical boundary conditions
+        H[:-1] += mkhx[:-1] * (E[1:] - E[:-1]) / dz
+        H[-1]  += mkhx[-1]  * (0     - E[-1] ) / dz # Dirichlet numerical boundary conditions
 
-    H[int(500)] += src[0] # H source injection
+        H[int(500)] += src[0] # H source injection
 
-    E[0]  += mkey[0]  * (H[0]  - 0     ) / dz # Dirichlet numerical boundary conditions
-    E[1:] += mkey[1:] * (H[1:] - H[:-1]) / dz
+        E[0]  += mkey[0]  * (H[0]  - 0     ) / dz # Dirichlet numerical boundary conditions
+        E[1:] += mkey[1:] * (H[1:] - H[:-1]) / dz
 
-    E[int(500)] += src[1] # E source injection
+        E[int(500)] += src[1] # E source injection
 
-    # Simply dampen at the edges instead of using the messy perfect edge or PML method.
-    E[:100] *= np.linspace(0.985,1.0,100)
-    H[:100] *= np.linspace(0.985,1.0,100)
-    E[-100:] *= np.linspace(1.0,0.985,100)
-    H[-100:] *= np.linspace(1.0,0.985,100)
+        # Simply dampen at the edges instead of using the messy perfect edge or PML method.
+        E[:100] *= np.linspace(0.985,1.0,100)
+        H[:100] *= np.linspace(0.985,1.0,100)
+        E[-100:] *= np.linspace(1.0,0.985,100)
+        H[-100:] *= np.linspace(1.0,0.985,100)
 
-    if i % 100 == 0:
-        line1.set_ydata(E)
-        line2.set_ydata(H)
-        fig.canvas.draw()
-        plt.pause(0.001)
+    line1.set_ydata(E)
+    line2.set_ydata(H)
+    return line1, line2
 
-print("Simulation complete")
-
-while True:
-    plt.pause(0.001)
+anim = animation.FuncAnimation(fig, animate, init_func=init_animation, interval=0, blit=True)
+plt.show()
