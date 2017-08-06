@@ -118,17 +118,21 @@ def gausspulse_source(er, ur, t0, tau, t):
          np.exp(-((t-t0)/tau)**2)
     )
 
+def blip_source(t):
+    return (0.0, 1.0) if t == 0 else (0.0, 0.0)
+
 for i in range(steps):
     t = i*dt
-    src = gausspulse_source(1.0, 1.0, 800*ps, 200*ps, t)
+    #src = gausspulse_source(1.0, 1.0, 800*ps, 200*ps, t)
+    src = blip_source(t)
 
     Cex[:,:-1] = (Ez[:,1:] - Ez[:,:-1]) / dy
     Cex[:, -1] = (       0 - Ez[:, -1]) / dy
     Cey[:-1,:] = (Ez[1:,:] - Ez[-1:,:]) / dx
     Cey[ -1,:] = (       0 - Ez[-1 ,:]) / dx
 
-    Hx += -c0 * dt / mrx * Cex
-    Hy += -c0 * dt / mry * Cey
+    Hx -= c0 * dt / mrx * Cex
+    Hy -= c0 * dt / mry * Cey
 
     Chz[1:,1:] = (Hy[1:,1:] - Hy[:-1,1:]) / dx - (Hx[1:,1:] - Hx[1:,:-1]) / dy
     Chz[0 ,1:] = (Hy[0 ,1:] -          0) / dx - (Hx[0 ,1:] - Hx[0 ,:-1]) / dy
@@ -146,9 +150,10 @@ for i in range(steps):
         #im.set_data(Ez)
         #fig.canvas.draw()
         #plt.pause(0.001)
-        plt.imshow(Ez, cmap='gray')
-        plt.show()
+        #plt.imshow(Ez[80:120,80:120], cmap='gray')
+        #plt.show()
         #print(Ez)
+        print(np.max(Ez), np.max(Hx), np.max(Hy))
 
 print("Simulation complete")
 

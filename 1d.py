@@ -122,13 +122,17 @@ def gausspulse_source(er, ur, t0, tau, t):
          np.exp(-((t-t0)/tau)**2)
     )
 
+def blip_source(t):
+    return (0.0, 1.0) if t == 0 else (0.0, 0.0)
+
 # TODO: TF/SF correction terms seem to have little effect on the backward
 # propagating power
 
 for i in range(steps):
     t = i*dt
-    #src = gausspulse_source(1.0, 1.0, 100*ps, 20*ps, t)
-    src = sinc_source(1.0, 1.0, 333*ps, 999*ps, t)
+    src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
+    #src = sinc_source(1.0, 1.0, 333*ps, 999*ps, t)
+    #src = blip_source(t)
 
     H[:-1] += mkhx[:-1] * (E[1:] - E[:-1]) / dz
     H[-1]  += mkhx[-1]  * (0     - E[-1] ) / dz # Dirichlet numerical boundary conditions
