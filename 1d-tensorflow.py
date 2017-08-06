@@ -48,7 +48,7 @@ for layer in layers:
         n_min = n
 
 space_size = 1.0                   # meters
-freq_max = 100*GHz                 # maximal resolvable frequency
+freq_max = 100*GHz                # maximal resolvable frequency
 lamb_min = c0 / (freq_max * n_max) # minimal wavelength
 dzpmwl = 10                        # delta-z per minimal wavelength, a rule-of-thumb constant
 dz = lamb_min / dzpmwl             # Spatial step size, meters
@@ -142,9 +142,8 @@ def animate(_):
     print(i)
     for i in range(i, i+20):
         t = i*dt
-        step.run({
-            src: gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
-        })
+        _src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
+        step.run({src:_src})
 
     line1.set_ydata(E.eval())
     line2.set_ydata(H.eval())
@@ -152,12 +151,19 @@ def animate(_):
     return line1, line2
 
 src = tf.placeholder(tf.float32, shape=(2,))
-step = tf.group(
-    H[1:-1].assign(H[1:-1] + mkhx[1:-1] * (E[2:] - E[1:-1]) / dz),
-    H[int(500)].assign(H[int(500)] + src[0]), # H source injection
-    E[1:-1].assign(E[1:-1] + mkey[1:-1] * (H[1:-1] - H[:-2]) / dz),
-    E[int(500)].assign(E[int(500)] + src[1]) # E source injection
-)
+
+op1 = H[1:-1].assign(H[1:-1] + mkhx[1:-1] * (E[2:] - E[1:-1]) / dz)
+
+with tf.control_dependencies([op1]):
+    op2 = H[int(500)].assign(H[int(500)] + src[0])
+
+with tf.control_dependencies([op2]):
+    op3 = E[1:-1].assign(E[1:-1] + mkey[1:-1] * (H[1:-1] - H[:-2]) / dz)
+
+with tf.control_dependencies([op3]):
+    op4 = E[int(500)].assign(E[int(500)] + src[1])
+
+step = tf.group(op1, op2, op3, op4)
 
 with sess.as_default():
     tf.global_variables_initializer().run()
