@@ -109,22 +109,26 @@ for layer in layers:
 
 # Sinc function source
 def sinc_source(er, ur, period, t0, t):
-    a_corr = -np.sqrt(er/ur) # amplitude correction term
-    t_corr = np.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
+
+    sinc = lambda x: tf.cond(tf.equal(x, 0), lambda: tf.constant(1.0), lambda: tf.sin(np.pi*x)/(np.pi*x))
+
+    a_corr = -tf.sqrt(er/ur)                 # Amplitude correction term
+    t_corr = tf.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
+
+    x = (t-t0)*2/period
+
     return (
-        # H field
-        a_corr * np.sinc((t-t0)*2/period + t_corr),
-        # E field
-        np.sinc((t-t0)*2/period)  # E
+        a_corr * sinc(x + t_corr), # H field
+        sinc(x)                    # E field
     )
 
 # Gaussian pulse source
 def gausspulse_source(er, ur, t0, tau, t):
-    a_corr = -np.sqrt(er/ur) # amplitude correction term
-    t_corr = np.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
+    a_corr = -tf.sqrt(er/ur) # amplitude correction term
+    t_corr = tf.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
     return (
-         a_corr * np.exp(-((t-t0)/tau)**2 + t_corr),
-         np.exp(-((t-t0)/tau)**2)
+         a_corr * tf.exp(-((t-t0)/tau)**2 + t_corr),
+         tf.exp(-((t-t0)/tau)**2)
     )
 
 # Outputs 1.0 at time 0
@@ -137,35 +141,37 @@ def init_animation():
 
 i = 0
 def animate(_):
-    global i, ax, line1, line2, H, E, mkhx, mkey, step, src
+    global i, ax, line1, line2, H, E, mkhx, mkey, step, t
 
     print(i)
     for i in range(i, i+20):
-        t = i*dt
-        _src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
-        step.run({src:_src})
+        step.run({t: i*dt})
 
     line1.set_ydata(E.eval())
     line2.set_ydata(H.eval())
 
     return line1, line2
 
-src = tf.placeholder(tf.float32, shape=(2,))
+
+t = tf.placeholder(tf.float32, shape=())
+
+gpsrc = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
 
 op1 = H[1:-1].assign(H[1:-1] + mkhx[1:-1] * (E[2:] - E[1:-1]) / dz)
 
 with tf.control_dependencies([op1]):
-    op2 = H[int(500)].assign(H[int(500)] + src[0])
+    op2 = H[int(500)].assign(H[int(500)] + gpsrc[0])
 
 with tf.control_dependencies([op2]):
     op3 = E[1:-1].assign(E[1:-1] + mkey[1:-1] * (H[1:-1] - H[:-2]) / dz)
 
 with tf.control_dependencies([op3]):
-    op4 = E[int(500)].assign(E[int(500)] + src[1])
+    op4 = E[int(500)].assign(E[int(500)] + gpsrc[1])
 
 step = tf.group(op1, op2, op3, op4)
 
 with sess.as_default():
     tf.global_variables_initializer().run()
+    #tf.summary.FileWriter('log', sess.graph)
     anim = animation.FuncAnimation(fig, animate, init_func=init_animation, interval=0, blit=True)
     plt.show()
