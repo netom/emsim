@@ -133,7 +133,8 @@ def init_animation():
 i = 0
 def animate(_):
     global i, ax, line1, line2, H, E, mkhx, mkey
-    for i in range(i, i+20):
+    print(i)
+    for i in range(i, i+100):
         t = i*dt
         src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
 
@@ -144,10 +145,10 @@ def animate(_):
         E[int(500)] += src[1] # E source injection
 
         # Simply dampen at the edges instead of using the messy perfect edge or PML method.
-        E[:100] *= np.linspace(0.985,1.0,100)
-        H[:100] *= np.linspace(0.985,1.0,100)
-        E[-100:] *= np.linspace(1.0,0.985,100)
-        H[-100:] *= np.linspace(1.0,0.985,100)
+        #E[:100] *= np.linspace(0.985,1.0,100)
+        #H[:100] *= np.linspace(0.985,1.0,100)
+        #E[-100:] *= np.linspace(1.0,0.985,100)
+        #H[-100:] *= np.linspace(1.0,0.985,100)
 
     line1.set_ydata(E)
     line2.set_ydata(H)

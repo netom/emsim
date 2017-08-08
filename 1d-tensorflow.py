@@ -144,7 +144,7 @@ def animate(_):
     global i, ax, line1, line2, H, E, mkhx, mkey, step, t
 
     print(i)
-    for i in range(i, i+20):
+    for i in range(i, i+100):
         step.run({t: i*dt})
 
     line1.set_ydata(E.eval())
