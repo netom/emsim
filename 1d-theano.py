@@ -10,6 +10,7 @@ from scipy import signal
 import time
 
 import theano
+import theano.sparse
 import theano.tensor as T
 
 # TODO:
@@ -66,8 +67,8 @@ print("steps:", steps)
 print("dt:", dt)
 print("dz:", dz)
 
-mr = np.ones(gridsize) # permeability, can be diagonally anisotropic
-er = np.ones(gridsize) # permittivity, can be diagonally anisotropic
+mr = np.ones(gridsize, dtype=np.float32) # permeability, can be diagonally anisotropic
+er = np.ones(gridsize, dtype=np.float32) # permittivity, can be diagonally anisotropic
 
 for layer in layers:
     # TODO: snap layers to grid / snap grid to layers?
@@ -92,14 +93,14 @@ mkey = c0*dt/er
 # * Easier to calculate discrete curls
 # * WARNING: field components can be in different materials!
 
-E = theano.shared(np.zeros(gridsize)) # Electric field
-H = theano.shared(np.zeros(gridsize)) # Normalized magnetic field
+E = theano.shared(np.zeros(gridsize, dtype=np.float32)) # Electric field
+H = theano.shared(np.zeros(gridsize, dtype=np.float32)) # Normalized magnetic field
 
 # Display
 fig = plt.figure()
 ax = plt.axes(ylim=(-5, 5))
-line1, = ax.plot(np.linspace(0.0, space_size, gridsize), np.zeros(gridsize), 'r-')
-line2, = ax.plot(np.linspace(0.0, space_size, gridsize), np.zeros(gridsize), 'b-')
+line1, = ax.plot(np.linspace(0.0, space_size, gridsize), np.zeros(gridsize, dtype=np.float32), 'r-')
+line2, = ax.plot(np.linspace(0.0, space_size, gridsize), np.zeros(gridsize, dtype=np.float32), 'b-')
 
 for layer in layers:
     n = layer[0]/layer[1]
@@ -133,13 +134,15 @@ def init_animation():
     global line1, line2
     return line1, line2
 
+
 src = T.fscalar()
 
-step1 = theano.function([], None, updates=[(H, T.inc_subtensor(H[1:-1], mkhx[1:-1] * (E[2:] - E[1:-1]) / dz))])
-step2 = theano.function([src], None, updates=[(H, T.inc_subtensor(H[500:501], [src]))], allow_input_downcast=True)
-step3 = theano.function([], None, updates=[(E, T.inc_subtensor(E[1:-1], mkey[1:-1] * (H[1:-1] - H[:-2]) / dz))])
-step4 = theano.function([src], None, updates=[(E, T.inc_subtensor(E[500:501], [src]))], allow_input_downcast=True)
-step5 = theano.function([], (E, H))
+step1 = theano.function([src], None, updates=[
+    (H, T.inc_subtensor(T.inc_subtensor(H[1:-1], mkhx[1:-1] * (E[2:] - E[1:-1]) / dz)[500:501], [src]))
+])
+step2 = theano.function([src], None, updates=[
+    (E, T.inc_subtensor(T.inc_subtensor(E[1:-1], mkey[1:-1] * (H[1:-1] - H[:-2]) / dz)[500:501], [src]))
+])
 
 i = 0
 def animate(_):
@@ -149,10 +152,8 @@ def animate(_):
         t = i*dt
         src_ = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
 
-        step1()
-        step2(src_[0])
-        step3()
-        step4(src_[1])
+        step1(np.float32(src_[0]))
+        step2(np.float32(src_[1]))
 
         # Simply dampen at the edges instead of using the messy perfect edge or PML method.
         #E[:100] *= np.linspace(0.985,1.0,100)
@@ -160,9 +161,8 @@ def animate(_):
         #E[-100:] *= np.linspace(1.0,0.985,100)
         #H[-100:] *= np.linspace(1.0,0.985,100)
 
-    res = step5()
-    line1.set_ydata(res[0])
-    line2.set_ydata(res[1])
+    line1.set_ydata(E.get_value())
+    line2.set_ydata(H.get_value())
     return line1, line2
 
 anim = animation.FuncAnimation(fig, animate, init_func=init_animation, interval=0, blit=True)
