@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 # 1D FDTD, Ey/Hx mode
 
@@ -8,6 +8,7 @@ import matplotlib.patches as patches
 from matplotlib import animation
 from scipy import signal
 import time
+import numba
 
 # TODO:
 # * Receive hints and simulation parameters as command-line parameters
@@ -103,6 +104,7 @@ for layer in layers:
     ax.add_patch(patches.Rectangle((layer[2], -20), layer[3], 40, color=(n, n, n)))
 
 # Sinc function source
+@numba.jit()
 def sinc_source(er, ur, period, t0, t):
     a_corr = -np.sqrt(er/ur) # amplitude correction term
     t_corr = np.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
@@ -114,6 +116,7 @@ def sinc_source(er, ur, period, t0, t):
     )
 
 # Gaussian pulse source
+@numba.jit()
 def gausspulse_source(er, ur, t0, tau, t):
     a_corr = -np.sqrt(er/ur) # amplitude correction term
     t_corr = np.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
@@ -123,6 +126,7 @@ def gausspulse_source(er, ur, t0, tau, t):
     )
 
 # Outputs 1.0 at time 0
+@numba.jit()
 def blip_source(t):
     return (0.0, 1.0) if t == 0 else (0.0, 0.0)
 
@@ -130,14 +134,11 @@ def init_animation():
     global line1, line2
     return line1, line2
 
-i = 0
-def animate(_):
-    global i, ax, line1, line2, H, E, mkhx, mkey
-    print(i)
-    for i in range(i, i+100):
+@numba.jit()
+def step(E, H, mkhx, mkey, ifrom, ito):
+    for i in range(ifrom, ito):
         t = i*dt
         src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
-
         H[1:-1] += mkhx[1:-1] * (E[2:] - E[1:-1]) / dz
         H[int(500)] += src[0] # H source injection
 
@@ -150,8 +151,21 @@ def animate(_):
         #E[-100:] *= np.linspace(1.0,0.985,100)
         #H[-100:] *= np.linspace(1.0,0.985,100)
 
+
+i = 0
+def animate(_):
+    global i, ax, line1, line2, H, E, mkhx, mkey
+
+    time1 = time.time()
+    step(E, H, mkhx, mkey, i, i+1000)
+    time2 = time.time()
+    print("step %d took %fms" % (i, time2-time1))
+
     line1.set_ydata(E)
     line2.set_ydata(H)
+
+    i += 1000
+
     return line1, line2
 
 anim = animation.FuncAnimation(fig, animate, init_func=init_animation, interval=0, blit=True)

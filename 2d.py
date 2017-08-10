@@ -8,6 +8,7 @@ import matplotlib.patches as patches
 from matplotlib import animation
 from scipy import signal
 import time
+import numba
 
 # TODO:
 # * Receive hints and simulation parameters as command-line parameters
@@ -94,6 +95,7 @@ for layer in layers:
     #ax.add_patch(patches.Rectangle((layer[2], -20), layer[3], 40, color=(n, n, n))) # TODO.
 
 # Sinc function source
+@numba.jit()
 def sinc_source(er, ur, period, t0, t):
     a_corr = -np.sqrt(er/ur) # amplitude correction term
     t_corr = np.sqrt(er*ur)*dx/(2*c0) + dt/2 # Time correction term
@@ -105,6 +107,7 @@ def sinc_source(er, ur, period, t0, t):
     )
 
 # Gaussian pulse source
+@numba.jit()
 def gausspulse_source(er, ur, t0, tau, t):
     a_corr = -np.sqrt(er/ur) # amplitude correction term
     t_corr = np.sqrt(er*ur)*dx/(2*c0) + dt/2 # Time correction term
@@ -114,6 +117,7 @@ def gausspulse_source(er, ur, t0, tau, t):
     )
 
 # Outputs 1.0 at time 0
+@numba.jit()
 def blip_source(t):
     return (0.0, 1.0) if t == 0 else (0.0, 0.0)
 
@@ -125,10 +129,15 @@ def init_animation():
     global im
     return im,
 
+@numba.jit()
+def step():
+    pass
+
 i = 0
 def animate(_):
     global i, im, Cex, Cey, Ez, dx, dy, dt, Hx, Hy, Chz, Dz, erz, mrx, mry
 
+    time1 = time.time()
     for i in range(i, i+10):
         t = i*dt
         src = gausspulse_source(1.0, 1.0, 300*ps, 100*ps, t)
@@ -145,6 +154,8 @@ def animate(_):
         Ez = 1.0 / erz * Dz
 
         Ez[100,100] += src[1] # Simple soft source injection
+    time2 = time.time()
+    print("step %d took %fms" % (i, time2-time1))
 
     im.set_array(Ez)
     return im,
