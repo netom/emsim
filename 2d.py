@@ -50,7 +50,7 @@ for layer in layers:
 
 space_size_x = 1.0                  # meters
 space_size_y = 1.0                  # meters
-freq_max = 10*GHz                   # maximal resolvable frequency
+freq_max = 20*GHz                   # maximal resolvable frequency
 lamb_min = c0 / (freq_max * n_max)  # minimal wavelength
 dxpmwl = 10                         # delta-x per minimal wavelength, a rule-of-thumb constant
 dypmwl = 10                         # delta-y per minimal wavelength, a rule-of-thumb constant
@@ -61,6 +61,10 @@ gridsize_y = int(space_size_y / dy) # Size of the grid in cells
 simlen = 5 * max(space_size_x, space_size_y) / c0   # Simulation length, seconds (5 travels back & forth)
 dt = n_min * min(dx, dy) / (2*c0)   # From the Courant-Friedrichs-Lewy condition. This is a rule of thumb
 steps = int(simlen / dt)            # Number of simulation steps
+bsize = 100                         # Dampening boundary thickness
+bcoeff = 1.015                      # Dampening coefficient
+batch = 10                          # Number of iterations between drawings
+
 
 print("simulation length:", simlen)
 print("grid size:", gridsize_x, gridsize_y)
@@ -130,15 +134,8 @@ def init_animation():
     return im,
 
 @numba.jit()
-def step():
-    pass
-
-i = 0
-def animate(_):
-    global i, im, Cex, Cey, Ez, dx, dy, dt, Hx, Hy, Chz, Dz, erz, mrx, mry
-
-    time1 = time.time()
-    for i in range(i, i+10):
+def step(Cex, Cey, Hx, Hy, Chz, Dz, Ez, ifrom, ito):
+    for i in range(ifrom, ito):
         t = i*dt
         src = gausspulse_source(1.0, 1.0, 300*ps, 100*ps, t)
 
@@ -151,13 +148,23 @@ def animate(_):
         Chz[1:-1,1:-1] = (Hy[1:-1,1:-1] - Hy[:-2,1:-1]) / dx - (Hx[1:-1,1:-1] - Hx[1:-1,:-2]) / dy
 
         Dz += c0 * dt * Chz
-        Ez = 1.0 / erz * Dz
+        Ez[:] = 1.0 / erz * Dz # Mind the colon
 
-        Ez[100,100] += src[1] # Simple soft source injection
+        Ez[200,200] += src[1] # Simple soft source injection
+
+i = 0
+def animate(_):
+    global i, im, Cex, Cey, Ez, dx, dy, dt, Hx, Hy, Chz, Dz, erz, mrx, mry
+
+    time1 = time.time()
+    step(Cex, Cey, Hx, Hy, Chz, Dz, Ez, i, i+batch)
     time2 = time.time()
     print("step %d took %fms" % (i, time2-time1))
 
     im.set_array(Ez)
+
+    i += batch
+
     return im,
 
 anim = animation.FuncAnimation(fig, animate, init_func=init_animation, interval=0, blit=True)
