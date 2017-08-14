@@ -57,6 +57,9 @@ gridsize = int(space_size / dz)    # Size of the grid in cells
 simlen = 5 * space_size / c0       # Simulation length, seconds (5 travels back & forth)
 dt = n_min * dz / (2*c0)           # From the Courant-Friedrichs-Lewy condition. This is a rule of thumb
 steps = int(simlen / dt)           # Number of simulation steps
+bsize = 100                        # Dampening boundary thickness
+bcoeff = 1.015                     # Dampening coefficient
+batch = 100                        # Number of iterations between drawings
 
 print("simulation length:", simlen)
 print("grid size:", gridsize)
@@ -90,8 +93,10 @@ mkey = c0*dt/er
 # * Easier to calculate discrete curls
 # * WARNING: field components can be in different materials!
 
-E = np.zeros(gridsize) # Electric field
-H = np.zeros(gridsize) # Normalized magnetic field
+E  = np.zeros(gridsize) # Electric field
+H  = np.zeros(gridsize) # Normalized magnetic field
+LB = np.log(np.linspace(np.e/bcoeff, np.e, bsize)) # left boundary
+RB = np.log(np.linspace(np.e, np.e/bcoeff, bsize)) # Right boundary
 
 # Display
 fig = plt.figure()
@@ -135,7 +140,7 @@ def init_animation():
     return line1, line2
 
 @numba.jit()
-def step(E, H, mkhx, mkey, ifrom, ito):
+def step(E, H, ifrom, ito):
     for i in range(ifrom, ito):
         t = i*dt
         src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
@@ -145,26 +150,25 @@ def step(E, H, mkhx, mkey, ifrom, ito):
         E[1:-1] += mkey[1:-1] * (H[1:-1] - H[:-2]) / dz
         E[int(500)] += src[1] # E source injection
 
-        # Simply dampen at the edges instead of using the messy perfect edge or PML method.
-        #E[:100] *= np.linspace(0.985,1.0,100)
-        #H[:100] *= np.linspace(0.985,1.0,100)
-        #E[-100:] *= np.linspace(1.0,0.985,100)
-        #H[-100:] *= np.linspace(1.0,0.985,100)
-
+        # Apply the dampening boundary
+        E[:bsize]  *= LB
+        H[:bsize]  *= LB
+        E[-bsize:] *= RB
+        H[-bsize:] *= RB
 
 i = 0
 def animate(_):
     global i, ax, line1, line2, H, E, mkhx, mkey
 
     time1 = time.time()
-    step(E, H, mkhx, mkey, i, i+1000)
+    step(E, H, i, i+batch)
     time2 = time.time()
     print("step %d took %fms" % (i, time2-time1))
 
     line1.set_ydata(E)
     line2.set_ydata(H)
 
-    i += 1000
+    i += batch
 
     return line1, line2
 
