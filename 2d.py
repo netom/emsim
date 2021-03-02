@@ -78,11 +78,11 @@ mry = np.ones((gridsize_x, gridsize_y))
 erz = np.ones((gridsize_x, gridsize_y)) # permittivity
 
 for layer in layers:
-    for i in range(max(0, int(layer[2]/dx)), min(gridsize_x, int((layer[2]+layer[3])/dx))):
-        #er[i] = layer[0]
-        #mr[i] = layer[1]
-        # TODO
-        pass
+    for i in range(max(0, int(layer[2]/dx)), min(gridsize_x, int((layer[2]+layer[4])/dx))):
+        for j in range(max(0, int(layer[3]/dy)), min(gridsize_y, int((layer[3]+layer[5])/dy))):
+            erz[i][j] = layer[0]
+            mrx[i][j] = layer[1]
+            mry[i][j] = layer[1]
 
 # Fields
 

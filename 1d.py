@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # 1D FDTD, Ey/Hx mode
 
@@ -59,7 +59,7 @@ dt = n_min * dz / (2*c0)           # From the Courant-Friedrichs-Lewy condition.
 steps = int(simlen / dt)           # Number of simulation steps
 bsize = 100                        # Dampening boundary thickness
 bcoeff = 1.015                     # Dampening coefficient
-batch = 100                        # Number of iterations between drawings
+batch = 10                         # Number of iterations between drawings
 
 print("simulation length:", simlen)
 print("grid size:", gridsize)
