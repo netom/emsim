@@ -6,8 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib import animation
-from scipy import signal
 import tensorflow as tf
+import time
 
 # TODO:
 # * Receive hints and simulation parameters as command-line parameters
@@ -48,7 +48,7 @@ for layer in layers:
         n_min = n
 
 space_size = 1.0                   # meters
-freq_max = 100*GHz                # maximal resolvable frequency
+freq_max = 100*GHz                 # maximal resolvable frequency
 lamb_min = c0 / (freq_max * n_max) # minimal wavelength
 dzpmwl = 10                        # delta-z per minimal wavelength, a rule-of-thumb constant
 dz = lamb_min / dzpmwl             # Spatial step size, meters
@@ -56,6 +56,7 @@ gridsize = int(space_size / dz)    # Size of the grid in cells
 simlen = 5 * space_size / c0       # Simulation length, seconds (5 travels back & forth)
 dt = n_min * dz / (2*c0)           # From the Courant-Friedrichs-Lewy condition. This is a rule of thumb
 steps = int(simlen / dt)           # Number of simulation steps
+batch = 100                        # Number of iterations between drawings
 
 print("simulation length:", simlen)
 print("grid size:", gridsize)
@@ -63,23 +64,18 @@ print("steps:", steps)
 print("dt:", dt)
 print("dz:", dz)
 
-sess = tf.Session(config=tf.ConfigProto())
-
-mr = np.ones(gridsize) # permeability, can be diagonally anisotropic
-er = np.ones(gridsize) # permittivity, can be diagonally anisotropic
+mr_np = np.ones(gridsize, dtype=np.float32) # permeability, can be diagonally anisotropic
+er_np = np.ones(gridsize, dtype=np.float32) # permittivity, can be diagonally anisotropic
 
 for layer in layers:
     # TODO: snap layers to grid / snap grid to layers?
     for i in range(max(0, int(layer[2]/dz)), min(gridsize, int((layer[2]+layer[3])/dz))):
-        er[i] = layer[0]
-        mr[i] = layer[1]
+        er_np[i] = layer[0]
+        mr_np[i] = layer[1]
 
-mr = tf.constant(mr, tf.float32)
-er = tf.constant(er, tf.float32)
-
-# Update coeffitients, using normalized magnetic field
-mkhx = c0*dt/mr
-mkey = c0*dt/er
+# Update coefficients, using normalized magnetic field
+mkhx = tf.constant(c0*dt/mr_np, dtype=tf.float32)
+mkey = tf.constant(c0*dt/er_np, dtype=tf.float32)
 
 # Yee grid scheme
 
@@ -94,8 +90,8 @@ mkey = c0*dt/er
 # * Easier to calculate discrete curls
 # * WARNING: field components can be in different materials!
 
-E = tf.Variable(tf.zeros(gridsize)) # Electric field
-H = tf.Variable(tf.zeros(gridsize)) # Normalized magnetic field
+E = tf.Variable(tf.zeros(gridsize, dtype=tf.float32)) # Electric field
+H = tf.Variable(tf.zeros(gridsize, dtype=tf.float32)) # Normalized magnetic field
 
 # Display
 fig = plt.figure()
@@ -109,31 +105,42 @@ for layer in layers:
 
 # Sinc function source
 def sinc_source(er, ur, period, t0, t):
-
-    sinc = lambda x: tf.cond(tf.equal(x, 0), lambda: tf.constant(1.0), lambda: tf.sin(np.pi*x)/(np.pi*x))
-
-    a_corr = -tf.sqrt(er/ur)                 # Amplitude correction term
-    t_corr = tf.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
-
-    x = (t-t0)*2/period
-
+    a_corr = -tf.sqrt(tf.constant(er/ur, dtype=tf.float32))  # Amplitude correction term
+    t_corr = tf.constant(np.sqrt(er*ur)*dz/(2*c0) + dt/2, dtype=tf.float32) # Time correction term
+    x = (t - t0)*2/period
+    # Implement sinc manually: sin(pi*x)/(pi*x), with limit 1 at x=0
+    safe_sinc = lambda v: tf.where(tf.equal(v, 0.0), tf.ones_like(v), tf.sin(np.pi * v) / (np.pi * v))
     return (
-        a_corr * sinc(x + t_corr), # H field
-        sinc(x)                    # E field
+        a_corr * safe_sinc(x + t_corr), # H field
+        safe_sinc(x)                     # E field
     )
 
 # Gaussian pulse source
 def gausspulse_source(er, ur, t0, tau, t):
-    a_corr = -tf.sqrt(er/ur) # amplitude correction term
-    t_corr = tf.sqrt(er*ur)*dz/(2*c0) + dt/2 # Time correction term
+    a_corr = tf.constant(-np.sqrt(er/ur), dtype=tf.float32)           # amplitude correction term
+    t_corr = tf.constant(np.sqrt(er*ur)*dz/(2*c0) + dt/2, dtype=tf.float32) # time correction term
     return (
-         a_corr * tf.exp(-((t-t0)/tau)**2 + t_corr),
-         tf.exp(-((t-t0)/tau)**2)
+        a_corr * tf.exp(-((t - t0)/tau)**2 + t_corr),
+        tf.exp(-((t - t0)/tau)**2)
     )
 
 # Outputs 1.0 at time 0
 def blip_source(t):
     return (0.0, 1.0) if t == 0 else (0.0, 0.0)
+
+@tf.function(input_signature=[tf.TensorSpec(shape=(), dtype=tf.float32)])
+def sim_step(t):
+    src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
+
+    # Update H[1:-1] then inject source at index 500 (interior index 499)
+    H_interior = H[1:-1] + mkhx[1:-1] * (E[2:] - E[1:-1]) / dz
+    H_interior = tf.tensor_scatter_nd_add(H_interior, [[499]], [src[0]])
+    H.assign(tf.concat([H[:1], H_interior, H[-1:]], axis=0))
+
+    # Update E[1:-1] then inject source at index 500 (interior index 499)
+    E_interior = E[1:-1] + mkey[1:-1] * (H[1:-1] - H[:-2]) / dz
+    E_interior = tf.tensor_scatter_nd_add(E_interior, [[499]], [src[1]])
+    E.assign(tf.concat([E[:1], E_interior, E[-1:]], axis=0))
 
 def init_animation():
     global line1, line2
@@ -141,37 +148,19 @@ def init_animation():
 
 i = 0
 def animate(_):
-    global i, ax, line1, line2, H, E, mkhx, mkey, step, t
+    global i
 
-    print(i)
-    for i in range(i, i+100):
-        step.run({t: i*dt})
+    time1 = time.time()
+    for _ in range(batch):
+        sim_step(tf.constant(i * dt, dtype=tf.float32))
+        i += 1
+    time2 = time.time()
+    print("step %d took %fms" % (i, time2-time1))
 
-    line1.set_ydata(E.eval())
-    line2.set_ydata(H.eval())
+    line1.set_ydata(E.numpy())
+    line2.set_ydata(H.numpy())
 
     return line1, line2
 
-
-t = tf.placeholder(tf.float32, shape=())
-
-gpsrc = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
-
-op1 = H[1:-1].assign(H[1:-1] + mkhx[1:-1] * (E[2:] - E[1:-1]) / dz)
-
-with tf.control_dependencies([op1]):
-    op2 = H[int(500)].assign(H[int(500)] + gpsrc[0])
-
-with tf.control_dependencies([op2]):
-    op3 = E[1:-1].assign(E[1:-1] + mkey[1:-1] * (H[1:-1] - H[:-2]) / dz)
-
-with tf.control_dependencies([op3]):
-    op4 = E[int(500)].assign(E[int(500)] + gpsrc[1])
-
-step = tf.group(op1, op2, op3, op4)
-
-with sess.as_default():
-    tf.global_variables_initializer().run()
-    tf.summary.FileWriter('log', sess.graph)
-    anim = animation.FuncAnimation(fig, animate, init_func=init_animation, interval=0, blit=True)
-    plt.show()
+anim = animation.FuncAnimation(fig, animate, init_func=init_animation, interval=0, blit=True)
+plt.show()
