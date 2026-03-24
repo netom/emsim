@@ -56,6 +56,8 @@ gridsize = int(space_size / dz)    # Size of the grid in cells
 simlen = 5 * space_size / c0       # Simulation length, seconds (5 travels back & forth)
 dt = n_min * dz / (2*c0)           # From the Courant-Friedrichs-Lewy condition. This is a rule of thumb
 steps = int(simlen / dt)           # Number of simulation steps
+bsize = 100                        # Dampening boundary thickness
+bcoeff = 1.015                     # Dampening coefficient
 batch = 100                        # Number of iterations between drawings
 
 print("simulation length:", simlen)
@@ -64,18 +66,18 @@ print("steps:", steps)
 print("dt:", dt)
 print("dz:", dz)
 
-mr_np = np.ones(gridsize, dtype=np.float32) # permeability, can be diagonally anisotropic
-er_np = np.ones(gridsize, dtype=np.float32) # permittivity, can be diagonally anisotropic
+mr = np.ones(gridsize, dtype=np.float32) # permeability, can be diagonally anisotropic
+er = np.ones(gridsize, dtype=np.float32) # permittivity, can be diagonally anisotropic
 
 for layer in layers:
     # TODO: snap layers to grid / snap grid to layers?
     for i in range(max(0, int(layer[2]/dz)), min(gridsize, int((layer[2]+layer[3])/dz))):
-        er_np[i] = layer[0]
-        mr_np[i] = layer[1]
+        er[i] = layer[0]
+        mr[i] = layer[1]
 
 # Update coefficients, using normalized magnetic field
-mkhx = tf.constant(c0*dt/mr_np, dtype=tf.float32)
-mkey = tf.constant(c0*dt/er_np, dtype=tf.float32)
+mkhx = tf.constant(c0*dt/mr, dtype=tf.float32)
+mkey = tf.constant(c0*dt/er, dtype=tf.float32)
 
 # Yee grid scheme
 
@@ -92,6 +94,8 @@ mkey = tf.constant(c0*dt/er_np, dtype=tf.float32)
 
 E = tf.Variable(tf.zeros(gridsize, dtype=tf.float32)) # Electric field
 H = tf.Variable(tf.zeros(gridsize, dtype=tf.float32)) # Normalized magnetic field
+LB = tf.Variable(np.log(np.linspace(np.e/bcoeff, np.e, bsize, dtype=np.float32)), dtype=tf.float32) # left boundary
+RB = tf.Variable(np.log(np.linspace(np.e, np.e/bcoeff, bsize, dtype=np.float32)), dtype=tf.float32) # Right boundary
 
 # Display
 fig = plt.figure()
@@ -128,19 +132,25 @@ def gausspulse_source(er, ur, t0, tau, t):
 def blip_source(t):
     return (0.0, 1.0) if t == 0 else (0.0, 0.0)
 
-@tf.function(input_signature=[tf.TensorSpec(shape=(), dtype=tf.float32)])
-def sim_step(t):
-    src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
+@tf.function(input_signature=[tf.TensorSpec(shape=(), dtype=tf.float32)]*2)
+def step(ifrom, ito):
+    for i in range(ifrom, ito):
+        t = i*dt
+        src = gausspulse_source(1.0, 1.0, 200*ps, 50*ps, t)
 
-    # Update H[1:-1] then inject source at index 500 (interior index 499)
-    H_interior = H[1:-1] + mkhx[1:-1] * (E[2:] - E[1:-1]) / dz
-    H_interior = tf.tensor_scatter_nd_add(H_interior, [[499]], [src[0]])
-    H.assign(tf.concat([H[:1], H_interior, H[-1:]], axis=0))
+        # Update H[1:-1] then inject source at index 500 (interior index 499)
+        H_interior = H[1:-1] + mkhx[1:-1] * (E[2:] - E[1:-1]) / dz
+        H_interior = tf.tensor_scatter_nd_add(H_interior, [[499]], [src[0]])
+        H.assign(tf.concat([H[:1], H_interior, H[-1:]], axis=0))
 
-    # Update E[1:-1] then inject source at index 500 (interior index 499)
-    E_interior = E[1:-1] + mkey[1:-1] * (H[1:-1] - H[:-2]) / dz
-    E_interior = tf.tensor_scatter_nd_add(E_interior, [[499]], [src[1]])
-    E.assign(tf.concat([E[:1], E_interior, E[-1:]], axis=0))
+        # Update E[1:-1] then inject source at index 500 (interior index 499)
+        E_interior = E[1:-1] + mkey[1:-1] * (H[1:-1] - H[:-2]) / dz
+        E_interior = tf.tensor_scatter_nd_add(E_interior, [[499]], [src[1]])
+        E.assign(tf.concat([E[:1], E_interior, E[-1:]], axis=0))
+
+        # Apply the dampening boundary
+        E.assign(tf.concat([E[:bsize] * LB, E[bsize:-bsize], E[-bsize:] * RB], axis=0))
+        H.assign(tf.concat([H[:bsize] * LB, H[bsize:-bsize], H[-bsize:] * RB], axis=0))
 
 def init_animation():
     global line1, line2
@@ -148,17 +158,17 @@ def init_animation():
 
 i = 0
 def animate(_):
-    global i
+    global i, ax, line1, line2, H, E, mkhx, mkey
 
     time1 = time.time()
-    for _ in range(batch):
-        sim_step(tf.constant(i * dt, dtype=tf.float32))
-        i += 1
+    step(tf.constant(i, dtype=tf.float32), tf.constant(i+batch, dtype=tf.float32))
     time2 = time.time()
     print("step %d took %fms" % (i, time2-time1))
 
     line1.set_ydata(E.numpy())
     line2.set_ydata(H.numpy())
+
+    i += batch
 
     return line1, line2
 
